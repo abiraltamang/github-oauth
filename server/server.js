@@ -1,60 +1,58 @@
-const express = require('express');
-const cors = require('cors')
-require('dotenv').config()
+const express = require("express");
+const bodyParser = require("body-parser");
+const FormData = require("form-data");
 const fetch = (...args)=>
     import('node-fetch').then(({default:fetch})=>fetch(...args));
-const bodyParser = require('body-parser');
+const { client_id, redirect_uri, client_secret } = require("./config.js");
 
+const config = require("./config.js");
 
 const app = express();
 
-app.use(cors());
 app.use(bodyParser.json());
+app.use(bodyParser.json({ type: "text/*" }));
+app.use(bodyParser.urlencoded({ extended: false }));
 
-app.get("/", (req, res)=>{
-   res.send('hello world')
-})
+// Enabled Access-Control-Allow-Origin", "*" in the header so as to by-pass the CORS error.
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  next();
+});
 
-//code being passed from the frontend
-app.get('/getAccessToken', async (req, res)=>{
-    console.log(req.query.code)
-    req.query.code;
-    console.log(process.env.CLIENT_ID)
+app.post("/authenticate", (req, res) => {
+  const { code } = req.body;
 
-    const params = "?client_id="+ process.env.CLIENT_ID + "&client_secret="+ process.env.CLIENT_SECRET + "&code=" + req.query.code;
-    
-    await fetch("https://github.com/login/oauth/access_token" + params, {
-        method: "POST",
-        headers :{
-            "Accept": "application/json"
-        }
-    }).then((response)=>{
-        return response.json();
-    }).then((data)=>{
-        // console.log(data)
-        res.json(data);
+  const data = new FormData();
+  data.append("client_id", client_id);
+  data.append("client_secret", client_secret);
+  data.append("code", code);
+  data.append("redirect_uri", redirect_uri);
+
+  // Request to exchange code for an access token
+  fetch(`https://github.com/login/oauth/access_token`, {
+    method: "POST",
+    body: data,
+  })
+    .then((response) => response.text())
+    .then((paramsString) => {
+      let params = new URLSearchParams(paramsString);
+      const access_token = params.get("access_token");
+
+      // Request to return data of a user that has been authenticated
+      return fetch(`https://api.github.com/user`, {
+        headers: {
+          Authorization: `token ${access_token}`,
+        },
+      });
     })
-})
-
-//getUserData
-//access token is going to be passed in as an Authorized header
-
-app.get('/getUserData', async (req, res)=>{
-    req.get("Authorization"); //Bearer AccessToken
-    await fetch("https://api.github.com/user", {
-        method: "GET",
-        headers:{
-            "Authorization": req.get("Authorization") //Bearer AccessToken
-        }
-    }).then((response)=>{
-        return response.json();
-    }).then((data)=>{
-        console.log(data);
-        return res.json(data)
+    .then((response) => response.json())
+    .then((response) => {
+      return res.status(200).json(response);
     })
-})
+    .catch((error) => {
+      return res.status(400).json(error);
+    });
+});
 
-
-app.listen(4000, ()=>{
-    console.log("Server running at http://localhost:4000");
-})
+const PORT = process.env.SERVER_PORT || 5000;
+app.listen(PORT, () => console.log(`Listening on ${PORT}`));
